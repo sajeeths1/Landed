@@ -12,6 +12,7 @@ What it does, for every supported company in the `companies` table:
 Needs: .env with SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY, and migrations 000-002 run.
 """
 import argparse
+import concurrent.futures
 import hashlib
 import html
 import os
@@ -78,18 +79,26 @@ STARTER_COMPANIES = {
 
 CLOSE_AFTER_DAYS = 2  # jobs not seen for this long get marked closed
 BATCH_SIZE = 200      # how many rows to send to Supabase at once
+DOWNLOAD_WORKERS = 8  # job boards downloaded at the same time
+DOWNLOAD_CHUNK = 32   # boards downloaded ahead of the database writes, to cap memory use
 
 # A title must contain one of these (whole words) to count as a CS job.
-# Broad words like "data", "security" or "intern" only count inside a phrase:
-# alone they also match "Data Migration Consultant", "Physical Security
-# Associate" or "Accounting Intern". Interns and new grads still qualify
-# through their role, e.g. "Software Engineer Intern".
+# Broad words like "data", "security", "intern" or "engineer" only count inside
+# a phrase: alone they also match "Data Migration Consultant", "Physical
+# Security Associate", "Accounting Intern" or "Welding Engineer". Interns and
+# new grads still qualify through their role, e.g. "Software Engineer Intern".
 CS_WORDS = [
     # Software roles
-    "software", "engineer", "developer", "programmer", "swe", "member of technical staff",
+    "software", "developer", "programmer", "swe", "member of technical staff",
     "backend", "back end", "frontend", "front end", "full stack", "fullstack",
-    "mobile", "ios", "android", "firmware", "embedded",
-    "devops", "sre", "site reliability",
+    "mobile", "ios", "android", "firmware", "embedded", "web",
+    "devops", "sre", "site reliability", "cloud", "kubernetes", "distributed systems",
+    "compiler", "kernel", "graphics", "computing",
+    # Engineer titles that are software work at tech companies
+    "forward deployed", "founding engineer", "product engineer", "ai engineer", "llm",
+    "research engineer", "infrastructure engineer", "platform engineer",
+    "data engineer", "analytics engineer", "data mining", "network engineer",
+    "security engineer", "qa", "quality assurance", "test automation",
     # Data, ML and research
     "machine learning", "ml", "deep learning", "computer vision", "nlp",
     "data science", "data scientist", "data analyst", "data engineering",
@@ -103,21 +112,41 @@ CS_WORDS = [
 
 # ...and must NOT contain any of these (leadership, or not really a CS role)
 EXCLUDE_WORDS = [
-    "lead", "manager", "director", "head", "vp", "vice president", "architect",
+    "lead", "manager", "director", "head", "supervisor", "vp", "vice president", "architect",
     "sales", "solutions", "account", "recruiter", "recruiting", "counsel",
     "marketing", "designer", "technician",
 ]
 
 # Too senior, unless the title says it is an early-career role
 # ("Senior Machine Learning Engineer - PhD Early Career").
-SENIOR_WORDS = ["senior", "sr", "staff", "principal", "distinguished", "iii", "iv"]
-EARLY_CAREER_WORDS = ["early career", "new grad", "intern", "internship"]
+SENIOR_WORDS = [
+    "senior", "sr", "staff", "principal", "distinguished", "ii", "iii", "iv",
+    "mid level", "mid-level", "midlevel", "experienced",
+]
+EARLY_CAREER_WORDS = [
+    "early career", "new grad", "new graduate", "university grad", "university graduate",
+    "recent graduate", "college grad", "campus", "entry level", "entry-level", "junior",
+    "apprentice", "apprenticeship", "intern", "internship", "co-op", "residency",
+]
 
-# Engineering fields outside software. "engineer" alone is a CS word, so every
-# other discipline must be listed here to keep e.g. "Aerospace Engineer Intern"
-# out. Words that also appear in software titles are written as phrases
-# ("audio engineer", not "audio"). A title that also names software work
-# ("Software Engineer, Hardware Health") is kept.
+# A plain title ("Software Engineer") can be any level, so the description
+# decides: a job asking for more than this many years of experience is not
+# early career. "3+ years of experience", "2-4 years of professional software
+# experience" and "minimum 5 years experience" are all read; a range counts
+# by its low end, and the smallest number in the description wins, so a job
+# that also says "1+ years with AWS" is kept.
+MAX_YEARS_FOR_EARLY_CAREER = 2
+YEARS_PATTERN = re.compile(
+    r"\b(\d{1,2})\s*\+?\s*(?:(?:-|\u2013|to)\s*\d{1,2}\s*\+?\s*)?years?"
+    r"(?:\s+of)?(?:\s+[\w/&-]+){0,4}?\s+experience",
+    re.IGNORECASE,
+)
+
+# Engineering fields outside software. A title naming one of these is dropped
+# even if it also has a CS phrase ("Network Engineer, Fiber Optic Layout",
+# "Embedded Controls GNC Engineer"), unless it names software work too
+# ("Software Engineer, Hardware Health" is kept). Words that also appear in
+# software titles are written as phrases ("audio engineer", not "audio").
 OTHER_ENGINEERING_WORDS = [
     # Mechanical, vehicles and aerospace
     "mechanical", "mechatronics", "aerospace", "aeronautical", "astronautical", "avionics",
@@ -132,6 +161,12 @@ OTHER_ENGINEERING_WORDS = [
     "chemical", "process engineer", "materials", "metallurgical", "biomedical", "bioengineer",
     "nuclear", "petroleum", "mining engineer", "agricultural", "marine", "naval", "packaging",
     "manufacturing", "industrial", "audio engineer",
+    # Test, quality, supply and site roles at hardware companies
+    "test engineer", "test engineering", "quality engineer", "quality engineering",
+    "integration and test", "integration & test", "launch engineer", "structures",
+    "supplier", "supply chain", "production engineer", "site development",
+    "facilities", "electromagnetic", "gnc", "guidance", "fiber", "rfic",
+    "cnc", "cmm", "edm", "solar", "welding", "outside plant", "antenna",
 ]
 SOFTWARE_WORK_WORDS = [
     "software", "firmware", "embedded", "ml", "machine learning",
@@ -186,6 +221,21 @@ def is_cs_role(title: str) -> bool:
     if has_word(without_mts, SENIOR_WORDS) and not has_word(title, EARLY_CAREER_WORDS):
         return False
     return not has_word(title, OTHER_ENGINEERING_WORDS) or has_word(title, SOFTWARE_WORK_WORDS)
+
+
+def years_of_experience(description: str) -> int | None:
+    """Smallest number of years of experience the description asks for, or None."""
+    years = [int(number) for number in YEARS_PATTERN.findall(description or "") if int(number) <= 15]
+    return min(years) if years else None
+
+
+def is_early_career(title: str, description: str) -> bool:
+    """Interns and new grads always count; otherwise the job must not ask for
+    more than MAX_YEARS_FOR_EARLY_CAREER years (or must not say)."""
+    if has_word(title, EARLY_CAREER_WORDS):
+        return True
+    years = years_of_experience(description)
+    return years is None or years <= MAX_YEARS_FOR_EARLY_CAREER
 
 
 def is_us_location(location: str) -> bool:
@@ -243,6 +293,9 @@ def clean_up(raw_jobs: list[dict], company_id: int, now: datetime, source: str =
         fingerprint = make_fingerprint(company_id, title, location)
         if fingerprint in rows:  # same job listed twice in one download: keep the first
             continue
+        description = html_to_text(job.get("content", ""))
+        if not is_early_career(title, description):
+            continue
         posted = job.get("first_published") or job.get("updated_at") or now.isoformat()
         rows[fingerprint] = {
             "company_id": company_id,
@@ -250,7 +303,7 @@ def clean_up(raw_jobs: list[dict], company_id: int, now: datetime, source: str =
             "location": location,
             "url": job["absolute_url"],
             "posted_at": posted[:10],
-            "description": html_to_text(job.get("content", "")),
+            "description": description,
             "work_mode": guess_work_mode(title, location),
             "source": source,
             "dedupe_hash": fingerprint,
@@ -371,12 +424,54 @@ def collect(ats_type: str, slug: str) -> list[dict]:
     return collector(slug)
 
 
+def download(company: dict, now: datetime) -> tuple[dict, int, list[dict], Exception | None]:
+    """Download and filter one company's board. Runs in a worker thread, so it
+    must not touch the database. Filtering here drops non-CS descriptions early."""
+    try:
+        raw_jobs = collect(company["ats_type"], company["ats_slug"])
+    except (requests.RequestException, ValueError) as error:
+        return company, 0, [], error
+    return company, len(raw_jobs), clean_up(raw_jobs, company["id"], now, source=company["ats_type"]), None
+
+
+def download_all(companies: list[dict], now: datetime):
+    """Yield download results in order, fetching several boards at once."""
+    with concurrent.futures.ThreadPoolExecutor(max_workers=DOWNLOAD_WORKERS) as pool:
+        for start in range(0, len(companies), DOWNLOAD_CHUNK):
+            chunk = companies[start:start + DOWNLOAD_CHUNK]
+            yield from pool.map(lambda company: download(company, now), chunk)
+
+
+def fetch_companies(supabase) -> list[dict]:
+    """Every company with a job board, read in pages (Supabase returns at most 1,000 rows per request)."""
+    companies, page_size, offset = [], 1000, 0
+    while True:
+        page = (
+            supabase.table("companies").select("id, name, ats_type, ats_slug, logo_url")
+            .order("name").range(offset, offset + page_size - 1).execute().data
+        )
+        companies += page
+        if len(page) < page_size:
+            return [company for company in companies if company.get("ats_type") and company.get("ats_slug")]
+        offset += page_size
+
+
 def save(supabase, rows: list[dict], company_id: int) -> list[dict]:
     """Upsert jobs for a company; return the rows that are newly added (not merely refreshed)."""
-    existing = (
-        supabase.table("jobs").select("dedupe_hash").eq("company_id", company_id).execute()
-    )
-    already_saved = {row["dedupe_hash"] for row in existing.data}
+    # Read in pages: Supabase returns at most 1,000 rows per request by default,
+    # so a single request could miss saved jobs and make old jobs look new.
+    already_saved = set()
+    page_size = 1000
+    offset = 0
+    while True:
+        page = (
+            supabase.table("jobs").select("dedupe_hash").eq("company_id", company_id)
+            .order("id").range(offset, offset + page_size - 1).execute().data
+        )
+        already_saved.update(row["dedupe_hash"] for row in page)
+        if len(page) < page_size:
+            break
+        offset += page_size
     new_rows = []
     for start in range(0, len(rows), BATCH_SIZE):
         batch = rows[start:start + BATCH_SIZE]
@@ -425,28 +520,19 @@ def main():
     seed_companies(supabase)
     backfill_company_logos(supabase)
 
-    companies = (
-        supabase.table("companies")
-        .select("id, name, ats_type, ats_slug, logo_url")
-        .order("name")
-        .execute()
-        .data
-    )
+    companies = fetch_companies(supabase)
 
     totals = {"kept": 0, "new": 0, "closed": 0, "failed": 0, "notified": 0, "emailed": 0,
               "closing_soon": 0, "role_matched": 0}
     all_new_jobs = []
     all_closing_soon_jobs = []
-    for company in companies:
-        name, ats_type, slug = company["name"], company["ats_type"], company["ats_slug"]
-        try:
-            raw_jobs = collect(ats_type, slug)
-        except (requests.RequestException, ValueError) as error:
+    for company, raw_count, rows, error in download_all(companies, now):
+        name, ats_type = company["name"], company["ats_type"]
+        if error is not None:
             print(f"  ! {name}: skipped, couldn't collect from {ats_type} ({error})")
             totals["failed"] += 1
             continue
 
-        rows = clean_up(raw_jobs, company["id"], now, source=ats_type)
         new_rows = save(supabase, rows, company["id"])
         closing_soon_jobs = find_closing_soon_jobs(supabase, company["id"], now)
         closed_count = close_old_jobs(supabase, company["id"], now)
@@ -460,7 +546,7 @@ def main():
         totals["closing_soon"] += len(closing_soon_jobs)
         totals["notified"] += notify_result["notified"] + closing_notify_result["notified"]
         totals["emailed"] += notify_result["emailed"] + closing_notify_result["emailed"]
-        print(f"  {name}: {len(raw_jobs)} downloaded, {len(rows)} kept, "
+        print(f"  {name}: {raw_count} downloaded, {len(rows)} kept, "
               f"{len(new_rows)} new, {len(closing_soon_jobs)} closing soon, {closed_count} closed")
 
     role_match_result = notify_target_role_matches(supabase, all_new_jobs, now, kind="new_posting")
