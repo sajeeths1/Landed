@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from pipeline import CLOSE_AFTER_DAYS, backfill_company_logos, find_closing_soon_jobs, guess_logo_url, seed_companies
+from pipeline import CLOSE_AFTER_DAYS, backfill_company_logos, find_closing_soon_jobs, guess_logo_url, is_cs_role, seed_companies
 
 
 class Query:
@@ -175,6 +175,75 @@ class SeedCompanyTests(unittest.TestCase):
         seed_companies(CompanyClient(companies))
 
         self.assertEqual(companies[0], {"name": "Stripe", "ats_type": "lever", "ats_slug": "stripe-jobs"})
+
+
+# Real titles from Greenhouse, Lever and Ashby boards (November 2026).
+class CsRoleTests(unittest.TestCase):
+    def test_keeps_software_data_ml_and_security_roles(self):
+        for title in [
+            "Software Engineer, New Grad",
+            "Software Engineer Intern (Summer 2027)",
+            "Data Scientist Intern [Summer 2027]",
+            "Data Engineer Intern (2027)",
+            "Research Scientist - Personalization",
+            "Applied Scientist",
+            "Member of Technical Staff (Storage)",
+            "Security Engineer, Detection and Response",
+            "Security Operations Analyst",
+            "Forward Deployed Engineer (FDE), Legal-NYC",
+        ]:
+            with self.subTest(title=title):
+                self.assertTrue(is_cs_role(title))
+
+    def test_broad_words_alone_do_not_qualify(self):
+        for title in [
+            "Accounting Intern",
+            "Product Management Intern (Summer 2027)",
+            "Product Design New Grad (2027 Start)",
+            "Physical Security Associate, Events",
+            "Data Migration Consultant",
+            "AI Transformation Leader",
+            "Engineering Compensation Partner",
+            "Strategy & Operations, Infrastructure",
+        ]:
+            with self.subTest(title=title):
+                self.assertFalse(is_cs_role(title))
+
+    def test_other_engineering_fields_need_software_work_to_qualify(self):
+        self.assertFalse(is_cs_role("Mechanical Engineer - Sensor Cleaning"))
+        self.assertFalse(is_cs_role("Hardware Engineer Intern, Vehicle Systems [Summer 2027]"))
+        self.assertFalse(is_cs_role("Manufacturing Quality Engineer, Data Center Equipment"))
+        self.assertTrue(is_cs_role("Software Engineer, Hardware Health"))
+        self.assertTrue(is_cs_role("Data Engineer, Hardware & Consumer Devices"))
+        self.assertTrue(is_cs_role("Privacy and Civil Liberties Software Engineer, Internship"))
+
+    def test_internships_in_other_engineering_disciplines_are_dropped(self):
+        for title in [
+            "Mechanical Engineering Intern",
+            "Mechanical Engineer Intern",
+            "Aerospace Engineer Intern",
+            "Biomedical Engineering Co-op",
+            "Chemical Engineering Intern",
+            "Civil Engineer, New Grad",
+            "Process Engineer Intern",
+        ]:
+            with self.subTest(title=title):
+                self.assertFalse(is_cs_role(title))
+        self.assertTrue(is_cs_role("Embedded Software Engineer Intern - Avionics"))
+        self.assertTrue(is_cs_role("Data Mining Engineer"))
+
+    def test_analytics_and_it_internships_are_kept(self):
+        self.assertTrue(is_cs_role("Advanced Analytics Intern"))
+        self.assertTrue(is_cs_role("Information Technology & Applications Intern [Summer 2027]"))
+
+    def test_seniority_is_still_excluded(self):
+        self.assertFalse(is_cs_role("Senior Software Engineer - Computer Vision"))
+        self.assertFalse(is_cs_role("Staff Software Engineer"))
+        self.assertFalse(is_cs_role("Engineering Manager – Camera Firmware Platform"))
+
+    def test_early_career_overrides_seniority_but_not_leadership(self):
+        self.assertTrue(is_cs_role("[2027] Senior Machine Learning Engineer - PhD Early Career"))
+        self.assertFalse(is_cs_role("Software Engineering Manager, New Grad Programs"))
 
 
 if __name__ == "__main__":
