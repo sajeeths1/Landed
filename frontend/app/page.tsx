@@ -46,6 +46,7 @@ import {
   fetchJobsForYou,
   fetchJobsPage,
   fetchKnownSkillIds,
+  fetchNewRoleCounts,
   fetchOpenJobs,
   fetchProfile,
   fetchUserSkillIds,
@@ -218,6 +219,16 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
     void loadPriorityCompanies();
   }, [loadPriorityCompanies]);
 
+  // Count each priority company's new roles in the database, not just among the loaded jobs.
+  const [newRoleCounts, setNewRoleCounts] = useState<Map<number, number>>(() => new Map());
+  useEffect(() => {
+    let current = true;
+    fetchNewRoleCounts(priorityCompanyIds)
+      .then((counts) => { if (current) setNewRoleCounts(counts); })
+      .catch(() => { /* Non-critical: tiles keep their last counts. */ });
+    return () => { current = false; };
+  }, [priorityCompanyIds, recommendationRefresh]);
+
   useEffect(() => {
     fetchCompanies().then(setCompanies).catch(() => undefined);
     fetchNotifications(30)
@@ -370,7 +381,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
     .filter((company) => priorityCompanyIds.includes(company.id))
     .map((company) => ({
       ...company,
-      newRoles: jobs.filter((job) => job.company_id === company.id && matchesPostedDate(job.posted_at, "week")).length,
+      newRoles: newRoleCounts.get(company.id) ?? 0,
     }))
     .slice(0, 5);
 
