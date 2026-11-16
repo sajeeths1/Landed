@@ -19,20 +19,33 @@ emailed) notifications due at that frequency into one email.
 Needs RESEND_API_KEY (and optionally RESEND_FROM_EMAIL) in .env to actually
 send email; without it, notifications are still created but emails are
 skipped with a logged warning. SITE_URL should point at the deployed
-CS Career Hub site so email links open a job's page there (falling back to
+Landed site so email links open a job's page there (falling back to
 the job's own external posting URL if unset, so links are never broken).
 """
 import argparse
+import base64
 import logging
 import os
 import re
 import unicodedata
 from datetime import datetime, timezone
+from pathlib import Path
 
 import requests
 
 LOGGER = logging.getLogger(__name__)
-DEFAULT_FROM_EMAIL = "CS Career Hub <onboarding@resend.dev>"
+DEFAULT_FROM_EMAIL = "Landed <onboarding@resend.dev>"
+
+# The Landed wordmark (docs/brand/landed-wordmark-frames/frame-20_3.65s.png,
+# cropped). Sent as an inline attachment and shown via cid:, so the header
+# works without hosting the image anywhere.
+BRAND_LOGO_PATH = Path(__file__).resolve().parent / "assets" / "landed-logo-email.png"
+BRAND_LOGO_CID = "landed-logo"
+
+# Logo colours from docs/brand/README.md.
+BRAND_BLUE = "#007CAC"
+BRAND_PALE_BLUE = "#BFEAF8"
+BRAND_TAGLINE = "Take Flight with these New Job Postings"
 
 SOURCE_LABELS = {
     "priority_company": "Priority companies",
@@ -106,7 +119,7 @@ def matches_target_roles(title: str, roles: list[str]) -> bool:
 # ---------------------------------------------------------------------------
 
 def job_url(job: dict) -> str:
-    """A Career Hub deep link to this job's page; falls back to the job's own
+    """A Landed deep link to this job's page; falls back to the job's own
     posting URL if SITE_URL isn't configured, so links are never broken."""
     site_url = os.environ.get("SITE_URL")
     return f"{site_url.rstrip('/')}/?job={job['id']}" if site_url else job["url"]
@@ -115,7 +128,8 @@ def job_url(job: dict) -> str:
 def _manage_preferences_link() -> str:
     site_url = os.environ.get("SITE_URL")
     href = f"{site_url.rstrip('/')}/?tab=settings" if site_url else None
-    return f'<a href="{href}">Manage your notification preferences</a>' if href else "Manage your notification preferences in CS Career Hub Settings"
+    return (f'<a href="{href}" style="color:{BRAND_BLUE};">Manage your notification preferences</a>' if href
+            else "Manage your notification preferences in Landed Settings")
 
 
 def _footer(company_name: str | None = None) -> str:
@@ -126,12 +140,12 @@ def _footer(company_name: str | None = None) -> str:
 
 def _digest_footer() -> str:
     manage = _manage_preferences_link()
-    message = f"You are receiving this message because you have subscribed to receiving notifications from CS Career Hub. No longer interested? {manage}."
+    message = f"You are receiving this message because you have subscribed to receiving notifications from Landed. No longer interested? {manage}."
     return f'<p style="font-size:14px;color:#666;margin-top:32px;">{message}</p>'
 
 
 _BUTTON_STYLE = (
-    "display:inline-block;background-color:#25364b;color:#ffffff;"
+    f"display:inline-block;background-color:{BRAND_BLUE};color:#ffffff;"
     "padding:9px 18px;border-radius:6px;text-decoration:none;"
     "font-size:14px;font-weight:600;margin-top:10px;"
 )
@@ -151,7 +165,7 @@ def _logo_img(company_name: str, logo_url: str | None, size: int = 40) -> str:
 
 def _company_header(company_name: str, logo_url: str | None) -> str:
     return (f'<div style="margin-bottom:12px;">{_logo_img(company_name, logo_url)}'
-            f'<span style="font-size:24px;font-weight:700;vertical-align:middle;">{company_name}</span></div>')
+            f'<span style="font-size:24px;font-weight:700;vertical-align:middle;color:{BRAND_BLUE};">{company_name}</span></div>')
 
 
 def _single_job_block(job: dict, label: str | None = None) -> str:
@@ -159,7 +173,7 @@ def _single_job_block(job: dict, label: str | None = None) -> str:
     the header above, so only the job itself (and its posted date) shows here."""
     location = job.get("location") or "Location not listed"
     posted = job.get("posted_at") or "recently"
-    label_html = f'<div style="font-size:15px;color:#b45309;font-weight:700;">{label}</div>' if label else ""
+    label_html = f'<div style="font-size:15px;color:{BRAND_BLUE};font-weight:700;">{label}</div>' if label else ""
     return (
         '<div style="margin:24px 0;">'
         f"{label_html}"
@@ -175,9 +189,9 @@ def _digest_row(job: dict, company_name: str, logo_url: str | None, label: str |
     """Used inside a digest email: jobs span many companies, so each row names
     its own company (with logo) and skips the posted date for a tighter list."""
     location = job.get("location") or "Location not listed"
-    label_html = f'<div style="font-size:15px;color:#b45309;font-weight:700;">{label}</div>' if label else ""
+    label_html = f'<div style="font-size:15px;color:{BRAND_BLUE};font-weight:700;">{label}</div>' if label else ""
     return (
-        '<div style="margin:40px 0;padding-bottom:40px;border-bottom:1px solid #e5e5e5;">'
+        f'<div style="margin:40px 0;padding-bottom:40px;border-bottom:1px solid {BRAND_PALE_BLUE};">'
         f"{label_html}"
         f'<div style="font-size:19px;font-weight:600;color:#333;">{_logo_img(company_name, logo_url, size=36)}'
         f'<span style="vertical-align:middle;">{company_name}</span></div>'
@@ -185,6 +199,17 @@ def _digest_row(job: dict, company_name: str, logo_url: str | None, label: str |
         f'<div style="font-size:17px;color:#555;">{location}</div>'
         f"{_cta_button(job)}"
         "</div>"
+    )
+
+
+def _brand_header() -> str:
+    """The Landed logo above every email; send_email attaches the image."""
+    return (
+        f'<div style="margin-bottom:24px;padding-bottom:16px;border-bottom:2px solid {BRAND_PALE_BLUE};">'
+        f'<img src="cid:{BRAND_LOGO_CID}" alt="Landed" width="240" height="70" '
+        'style="display:block;margin:0 auto;border:0;height:auto;">'
+        f'<div style="font-size:16px;font-weight:600;color:{BRAND_BLUE};margin-top:8px;">'
+        f"{BRAND_TAGLINE}</div></div>"
     )
 
 
@@ -196,15 +221,15 @@ def _wrap(inner: str) -> str:
         "<!DOCTYPE html><html><head><meta charset=\"utf-8\">"
         '<meta name="viewport" content="width=device-width, initial-scale=1.0"></head>'
         '<body style="margin:0;padding:0;">'
-        f'<div style="text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:17px;color:#111;padding:24px;">{inner}</div>'
+        f'<div style="text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:17px;color:#111;padding:24px;">{_brand_header()}{inner}</div>'
         "</body></html>"
     )
 
 
 def new_job_email(company_name: str, jobs: list[dict], logo_url: str | None = None) -> tuple[str, str]:
     single = len(jobs) == 1
-    subject = (f"\U0001F680 New Job For You: {jobs[0]['title']} at {company_name}" if single
-               else f"\U0001F680 {len(jobs)} New Jobs For You at {company_name}")
+    subject = (f"1 New Job Has Landed In Your Inbox From {company_name}" if single
+               else f"{len(jobs)} New Jobs Have Landed In Your Inbox From {company_name}")
     intro = ("just posted a job opportunity that matches your interests!" if single
              else f"just posted {len(jobs)} job opportunities that match your interests!")
     items = "".join(_single_job_block(job) for job in jobs)
@@ -229,8 +254,8 @@ def closing_soon_email(company_name: str, jobs: list[dict], logo_url: str | None
 
 def digest_email(frequency: str, rows: list[dict]) -> tuple[str, str]:
     usable = [row for row in rows if row.get("jobs") and row.get("companies")]
-    subject = f"\U0001F4A1 {frequency.capitalize()} Digest: New Jobs Just For You!"
     count = len(usable)
+    subject = "1 New Job Landing Near You" if count == 1 else f"{count} New Jobs Landing Near You"
     noun, verb = ("Job", "Matches") if count == 1 else ("Jobs", "Match")
     header = f"{count} {noun} That {verb} Your Preferences"
     items = "".join(
@@ -238,7 +263,7 @@ def digest_email(frequency: str, rows: list[dict]) -> tuple[str, str]:
                     label="Closing soon" if row.get("kind") == "closing_soon" else None)
         for row in usable
     )
-    body = _wrap(f'<h2 style="font-size:24px;">{header}</h2>{items}{_digest_footer()}')
+    body = _wrap(f'<h2 style="font-size:24px;color:{BRAND_BLUE};">{header}</h2>{items}{_digest_footer()}')
     return subject, body
 
 
@@ -271,6 +296,12 @@ def send_email(to_email: str, subject: str, html: str) -> bool:
             "to": [to_email],
             "subject": subject,
             "html": html,
+            "attachments": [{
+                "filename": BRAND_LOGO_PATH.name,
+                "content": base64.b64encode(BRAND_LOGO_PATH.read_bytes()).decode(),
+                "content_type": "image/png",
+                "content_id": BRAND_LOGO_CID,
+            }],
         },
         timeout=15,
     )

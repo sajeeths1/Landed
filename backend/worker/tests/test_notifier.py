@@ -8,6 +8,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from notifier import (
+    BRAND_LOGO_CID,
+    BRAND_LOGO_PATH,
     closing_soon_email,
     digest_email,
     job_url,
@@ -18,6 +20,7 @@ from notifier import (
     notify_target_role_matches,
     parse_target_roles,
     run_digest,
+    send_email,
 )
 
 
@@ -174,7 +177,7 @@ class EmailContentTests(unittest.TestCase):
 
     def test_new_job_email_singular_vs_plural_subject(self):
         subject, body = new_job_email("Acme", NEW_JOBS)
-        self.assertIn("New Job For You: Software Engineer Intern at Acme", subject)
+        self.assertEqual("1 New Job Has Landed In Your Inbox From Acme", subject)
         self.assertIn("Software Engineer Intern", body)
         self.assertIn('text-align:center', body)
         self.assertNotIn(f'<a href="{NEW_JOBS[0]["url"]}">Software Engineer Intern</a>', body)
@@ -182,7 +185,7 @@ class EmailContentTests(unittest.TestCase):
         self.assertIn("View &amp; Apply", body)
         two_jobs = NEW_JOBS + [{**NEW_JOBS[0], "id": 102, "title": "Data Intern"}]
         subject, _ = new_job_email("Acme", two_jobs)
-        self.assertIn("2 New Jobs For You at Acme", subject)
+        self.assertEqual("2 New Jobs Have Landed In Your Inbox From Acme", subject)
 
     def test_closing_soon_email_subject_and_cta(self):
         subject, body = closing_soon_email("Acme", NEW_JOBS)
@@ -197,18 +200,19 @@ class EmailContentTests(unittest.TestCase):
             {"kind": "closing_soon", "jobs": {"id": 2, "title": "Data Intern", "url": "x"}, "companies": {"name": "Beta"}},
         ]
         subject, body = digest_email("weekly", rows)
-        self.assertIn("Weekly Digest", subject)
+        self.assertEqual("2 New Jobs Landing Near You", subject)
         self.assertIn("SWE Intern", body)
         self.assertIn("Data Intern", body)
         self.assertIn("Closing soon", body)
         self.assertIn("Acme", body)
         self.assertIn('src="https://logo.example.com/acme.png"', body)
         self.assertNotIn("Posted", body)  # digest rows skip the posted date, per the template
-        self.assertIn("subscribed to receiving notifications from CS Career Hub", body)
+        self.assertIn("subscribed to receiving notifications from Landed", body)
 
     def test_digest_header_subject_verb_agreement(self):
         one = [{"kind": "new_posting", "jobs": {"id": 1, "title": "SWE Intern", "url": "x"}, "companies": {"name": "Acme"}}]
-        _, body = digest_email("weekly", one)
+        subject, body = digest_email("weekly", one)
+        self.assertEqual("1 New Job Landing Near You", subject)
         self.assertIn("1 Job That Matches Your Preferences", body)
         two = one + [{"kind": "new_posting", "jobs": {"id": 2, "title": "Data Intern", "url": "x"}, "companies": {"name": "Beta"}}]
         _, body = digest_email("weekly", two)
@@ -218,10 +222,28 @@ class EmailContentTests(unittest.TestCase):
         _, body = new_job_email("Acme", NEW_JOBS, logo_url="https://logo.example.com/acme.png")
         self.assertIn('src="https://logo.example.com/acme.png"', body)
         _, body_without_logo = new_job_email("Acme", NEW_JOBS)
-        self.assertNotIn("<img", body_without_logo)
+        self.assertNotIn('alt="Acme logo"', body_without_logo)
         self.assertNotIn('<a href="x">Data Intern</a>', body)  # job titles are plain text, not links
         self.assertNotIn("<li>", body)  # no bullet points
         self.assertIn("View &amp; Apply", body)
+
+    def test_every_email_starts_with_the_landed_logo(self):
+        rows = [{"kind": "new_posting", "jobs": {"id": 1, "title": "SWE Intern", "url": "x"}, "companies": {"name": "Acme"}}]
+        for _, body in [new_job_email("Acme", NEW_JOBS), closing_soon_email("Acme", NEW_JOBS), digest_email("daily", rows)]:
+            self.assertIn(f'src="cid:{BRAND_LOGO_CID}"', body)
+            self.assertLess(body.index(f"cid:{BRAND_LOGO_CID}"), body.index("Take Flight with these New Job Postings"))
+            self.assertLess(body.index("Take Flight with these New Job Postings"), body.index("Intern"))
+
+    def test_send_email_attaches_the_logo_inline(self):
+        with patch.dict("os.environ", {"RESEND_API_KEY": "test-key"}), \
+                patch("notifier.requests.post", return_value=SimpleNamespace(status_code=200, text="")) as post:
+            self.assertTrue(send_email("student@example.com", "Subject", "<p>Hi</p>"))
+        payload = post.call_args.kwargs["json"]
+        self.assertTrue(payload["from"].startswith("Landed <"))
+        attachment, = payload["attachments"]
+        self.assertEqual(attachment["content_id"], BRAND_LOGO_CID)
+        self.assertEqual(attachment["content_type"], "image/png")
+        self.assertTrue(BRAND_LOGO_PATH.is_file())
 
 
 class NotifyNewJobsTests(unittest.TestCase):
