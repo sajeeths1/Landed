@@ -87,7 +87,7 @@ export function ResumeUpload({ compact = false, result, onResult, onProfileDraft
       </CardHeader>
       <CardContent className="space-y-4">
         <button
-          className={cn("flex w-full items-center justify-between gap-4 rounded-lg border border-dashed border-blue-200 bg-blue-50/50 px-4 py-5 text-left transition-colors hover:bg-blue-50 disabled:opacity-50", compact && "py-4")}
+          className={cn("flex w-full items-center justify-between gap-4 rounded-lg border border-dashed border-brand-200 bg-brand-50/50 px-4 py-5 text-left transition-colors hover:bg-brand-50 disabled:opacity-50", compact && "py-4")}
           type="button" disabled={busy} onClick={() => inputRef.current?.click()}
         >
           <Upload className="h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
