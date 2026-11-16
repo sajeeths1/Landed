@@ -3,12 +3,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import {
+  ArrowRight,
   Bookmark,
   Check,
   ExternalLink,
   LogOut,
+  MessagesSquare,
+  Plane,
   RefreshCw,
   Search,
+  Send,
+  Trophy,
 } from "lucide-react";
 import { AuthScreen } from "@/components/auth-screen";
 import { ProfileForm } from "@/components/profile-form";
@@ -35,6 +40,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { LandedMark, LandedWordmark } from "@/components/landed-logo";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   fetchApplications,
@@ -472,48 +478,55 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
 
   return (
     <main className="flex min-h-screen bg-background text-foreground">
-      <aside className="hidden w-64 shrink-0 border-r border-slate-800 bg-[#112a46] px-4 py-5 text-white lg:flex lg:flex-col">
-        <div className="mb-8 flex items-center gap-3 px-2">
-          <div className="grid h-9 w-9 place-items-center rounded-md bg-cyan-300 text-sm font-bold text-slate-950">
-            CH
-          </div>
-          <div className="min-w-0">
-            <p className="font-semibold">CS Career Hub</p>
-            <p className="truncate text-xs text-slate-300">{email}</p>
-          </div>
-        </div>
-        <nav className="space-y-1">
+      {/* Sidebar (large screens): logo, page links, account */}
+      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col bg-gradient-to-b from-brand-950 from-30% to-brand-900 px-4 py-6 text-white lg:flex">
+        <button className="mb-8 block w-40 self-start px-2" type="button" aria-label="Landed home" onClick={() => setTab("dashboard")}>
+          <LandedWordmark tone="dark" />
+        </button>
+        <nav className="space-y-1" aria-label="Main">
           {navItems.map((item) => {
             const value = item.label.toLowerCase();
+            const active = tab === value;
             return (
               <button
-                className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium ${
-                  tab === value
-                    ? "bg-white/15 text-white ring-1 ring-white/15"
-                    : "text-slate-300 hover:bg-white/10 hover:text-white"
+                aria-current={active ? "page" : undefined}
+                className={`relative flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                  active
+                    ? "bg-white/10 text-white before:absolute before:inset-y-2 before:left-0 before:w-1 before:rounded-full before:bg-brand-400"
+                    : "text-brand-100/75 hover:bg-white/5 hover:text-white"
                 }`}
                 key={item.label}
                 type="button"
                 onClick={() => setTab(value)}
               >
-                <item.icon className="h-4 w-4" aria-hidden="true" />
+                <item.icon className={`h-4 w-4 ${active ? "text-brand-300" : ""}`} aria-hidden="true" />
                 {item.label}
               </button>
             );
           })}
         </nav>
-        <Button
-          className="mt-auto justify-start border-white/25 text-white hover:bg-white/10"
-          variant="outline"
-          onClick={() => supabase?.auth.signOut()}
-        >
-          <LogOut className="h-4 w-4" aria-hidden="true" />
-          Sign out
-        </Button>
+        <div className="mt-auto grid gap-3 border-t border-white/10 pt-4">
+          <div className="flex items-center gap-3 px-2">
+            <span aria-hidden="true" className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-brand-400 text-xs font-semibold uppercase text-brand-950">
+              {(profile?.full_name || email || "?").trim().charAt(0)}
+            </span>
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-medium">{profile?.full_name || "Signed in"}</span>
+              <span className="block truncate text-xs text-brand-100/70">{email}</span>
+            </span>
+          </div>
+          <Button className="justify-start text-brand-100/80 hover:bg-white/10 hover:text-white" variant="ghost" onClick={() => supabase?.auth.signOut()}>
+            <LogOut className="h-4 w-4" aria-hidden="true" />
+            Sign out
+          </Button>
+        </div>
       </aside>
 
       <section className="min-w-0 flex-1">
         <header className="sticky top-0 z-10 flex h-16 items-center gap-3 border-b bg-card/90 px-4 backdrop-blur sm:px-6">
+          <button className="w-9 shrink-0 lg:hidden" type="button" aria-label="Landed home" onClick={() => setTab("dashboard")}>
+            <LandedMark />
+          </button>
           <div className="relative max-w-xl flex-1">
             <Search
               className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
@@ -565,21 +578,30 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
             </TabsList>
 
             {/* ---------------- Dashboard ---------------- */}
-            <TabsContent value="dashboard" className="grid gap-9">
-              <div>
-                <h1 className="text-3xl font-semibold tracking-tight">Welcome back{profile?.full_name ? `, ${profile.full_name.split(" ")[0]}` : ""}</h1>
-                <p className="mt-1 text-muted-foreground">Your next steps, at a glance</p>
-              </div>
+            <TabsContent value="dashboard" className="grid min-w-0 grid-cols-1 gap-9 [&>*]:min-w-0">
+              <WelcomeBanner
+                firstName={profile?.full_name ? profile.full_name.split(" ")[0] : ""}
+                onFindJobs={() => { changeJobView("for_you"); setTab("jobs"); }}
+              />
 
               <section className="grid grid-cols-2 gap-4 xl:grid-cols-4" aria-label="Your progress">
-                {metrics.map((metric, index) => (
-                  <Card className={`border-t-4 ${PROGRESS_TONES[index]}`} key={metric.label}>
-                    <CardContent className="p-5">
-                      <p className="text-sm text-muted-foreground">{metric.label}</p>
-                      <p className="mt-2 text-3xl font-semibold">{loading ? "–" : metric.value}</p>
-                    </CardContent>
-                  </Card>
-                ))}
+                {metrics.map((metric, index) => {
+                  const style = METRIC_STYLES[index];
+                  return (
+                    <Card className={`border-t-4 ${style.border}`} key={metric.label}>
+                      <CardContent className="flex items-start justify-between gap-3 p-5">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-muted-foreground">{metric.label}</p>
+                          <p className={`mt-2 text-3xl font-semibold tracking-tight ${style.number}`}>{loading ? "–" : metric.value}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">{metric.note}</p>
+                        </div>
+                        <span aria-hidden="true" className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${style.chip}`}>
+                          <style.icon className="h-5 w-5" />
+                        </span>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </section>
 
               <Card>
@@ -592,7 +614,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
                     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
                       {priorityCompanies.map((company) => (
                         <button
-                          className="flex items-center gap-3 rounded-lg border p-3 text-left transition-colors hover:border-cyan-200 hover:bg-cyan-50/40"
+                          className="flex items-center gap-3 rounded-lg border p-3 text-left transition-colors hover:border-brand-200 hover:bg-brand-50/40"
                           key={company.id}
                           type="button"
                           onClick={() => { resetJobSelection(); setSearch(company.name); setTab("jobs"); }}
@@ -617,7 +639,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
                 </CardContent>
               </Card>
 
-              <div className="grid items-stretch gap-8 xl:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
+              <div className="grid grid-cols-1 items-stretch gap-8 xl:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)] [&>*]:min-w-0">
                 <Card className="flex min-h-0 flex-col">
                   <CardHeader className="flex flex-row items-start justify-between gap-4">
                     <div>
@@ -648,23 +670,23 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
                     </CardHeader>
                     <CardContent className="grid gap-5">
                       <div className="flex items-center gap-4">
-                        <span className="text-[32px] font-semibold leading-none text-cyan-600">{savedMatch.percent === null ? "–" : `${savedMatch.percent}%`}</span>
+                        <span className="text-[32px] font-semibold leading-none text-brand-600">{savedMatch.percent === null ? "–" : `${savedMatch.percent}%`}</span>
                         <div
                           aria-label="Average skill match across saved jobs"
                           aria-valuemax={100}
                           aria-valuemin={0}
                           aria-valuenow={savedMatch.percent ?? 0}
-                          className="h-2.5 flex-1 overflow-hidden rounded-full bg-slate-200"
+                          className="h-2.5 flex-1 overflow-hidden rounded-full bg-brand-100"
                           role="progressbar"
                         >
-                          <div className="h-full rounded-full bg-cyan-600" style={{ width: `${savedMatch.percent ?? 0}%` }} />
+                          <div className="h-full rounded-full bg-gradient-to-r from-brand-400 to-brand-600" style={{ width: `${savedMatch.percent ?? 0}%` }} />
                         </div>
                       </div>
                       <Button variant="outline" onClick={() => setTab("skills")}>See how to improve your match</Button>
                     </CardContent>
                   </Card>
 
-                  <Card className="flex flex-1 flex-col border-t-[3px] border-t-cyan-600">
+                  <Card className="flex flex-1 flex-col border-t-[3px] border-t-amber-400">
                     <CardHeader className="flex flex-row items-start justify-between gap-3">
                       <div>
                         <CardTitle>Closing Soon</CardTitle>
@@ -832,7 +854,35 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
 const MATCH_EXPLANATION = "Share of the skills mentioned in this posting that are in My skills. Postings can mention optional skills, so treat this as a guide.";
 const MATCH_PENDING_EXPLANATION = "No score yet: this posting has no stored skills, or you have not added any skills.";
 
-const PROGRESS_TONES = ["border-t-sky-300", "border-t-sky-400", "border-t-sky-600", "border-t-sky-900"];
+// One colour per tracker stage: two Landed blues, then amber for interviews and green for offers.
+const METRIC_STYLES = [
+  { icon: Bookmark, border: "border-t-brand-400", chip: "bg-brand-50 text-brand-500", number: "text-brand-900" },
+  { icon: Send, border: "border-t-brand-600", chip: "bg-brand-100 text-brand-700", number: "text-brand-900" },
+  { icon: MessagesSquare, border: "border-t-amber-400", chip: "bg-amber-50 text-amber-600", number: "text-brand-900" },
+  { icon: Trophy, border: "border-t-emerald-500", chip: "bg-emerald-50 text-emerald-600", number: "text-brand-900" },
+];
+
+/** Dashboard greeting: a light-blue banner with a dashed flight path and a little plane. */
+function WelcomeBanner({ firstName, onFindJobs }: { firstName: string; onFindJobs: () => void }) {
+  return (
+    <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-brand-800 via-brand-600 to-brand-500 p-6 text-white shadow-lift sm:p-8">
+      <div aria-hidden="true" className="pointer-events-none absolute -right-16 -top-24 h-64 w-64 rounded-full bg-brand-300/20" />
+      <svg aria-hidden="true" className="pointer-events-none absolute -right-6 top-0 hidden h-full w-[55%] text-brand-200/70 md:block" fill="none" preserveAspectRatio="none" viewBox="0 0 400 160">
+        <path d="M10 150 C 120 140, 200 110, 260 70 S 360 20, 395 18" stroke="currentColor" strokeDasharray="2 8" strokeLinecap="round" strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
+      </svg>
+      <Plane aria-hidden="true" className="absolute right-6 top-5 hidden h-7 w-7 rotate-12 text-white md:block" />
+      <div className="relative max-w-xl">
+        <p className="text-sm font-medium uppercase tracking-[0.2em] text-brand-200">Soar to success</p>
+        <h1 className="mt-1 text-3xl font-semibold tracking-tight">Welcome back{firstName ? `, ${firstName}` : ""}</h1>
+        <p className="mt-2 text-brand-50/90">Here are your next steps at a glance.</p>
+        <Button className="mt-5 bg-white text-brand-800 hover:bg-brand-50" onClick={onFindJobs}>
+          Find jobs for you
+          <ArrowRight className="h-4 w-4" aria-hidden="true" />
+        </Button>
+      </div>
+    </section>
+  );
+}
 
 function CompanyLogo({ name, logoUrl, size = 36 }: { name: string; logoUrl: string | null; size?: number }) {
   const [failed, setFailed] = useState(false);
@@ -841,7 +891,7 @@ function CompanyLogo({ name, logoUrl, size = 36 }: { name: string; logoUrl: stri
   if (logoUrl && !failed) {
     return <img alt="" className="rounded-md border bg-white object-contain p-1" src={logoUrl} style={box} onError={() => setFailed(true)} />;
   }
-  return <div aria-hidden="true" className="grid place-items-center rounded-md bg-slate-100 text-xs font-bold text-slate-700" style={box}>{initials}</div>;
+  return <div aria-hidden="true" className="grid place-items-center rounded-md bg-brand-50 text-xs font-bold text-brand-800" style={box}>{initials}</div>;
 }
 
 function DashboardJobCard({ job, match, onOpen }: { job: Job; match: JobMatch | null; onOpen: () => void }) {
@@ -852,7 +902,7 @@ function DashboardJobCard({ job, match, onOpen }: { job: Job; match: JobMatch | 
       ? "border-amber-200 bg-amber-50 text-amber-800"
       : "border-slate-200 bg-slate-100 text-slate-600";
   return (
-    <button className="flex h-[72px] shrink-0 items-center gap-3.5 rounded-lg border bg-card px-3.5 text-left transition-colors hover:border-cyan-200 hover:bg-cyan-50/40" type="button" onClick={onOpen}>
+    <button className="flex h-[72px] shrink-0 items-center gap-3.5 rounded-lg border bg-card px-3.5 text-left transition-colors hover:border-brand-200 hover:bg-brand-50/40" type="button" onClick={onOpen}>
       <CompanyLogo logoUrl={job.companies?.logo_url ?? null} name={job.companies?.name ?? "Unknown company"} size={44} />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-semibold">{job.title}</span>
@@ -866,7 +916,7 @@ function DashboardJobCard({ job, match, onOpen }: { job: Job; match: JobMatch | 
 function MatchScoreBadge({ match }: { match: JobMatch | null }) {
   return (
     <span
-      className="inline-flex w-fit items-center rounded-full border border-blue-200 bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-800"
+      className="inline-flex w-fit items-center rounded-full border border-brand-200 bg-brand-50 px-2.5 py-0.5 text-xs font-medium text-brand-800"
       title={match ? MATCH_EXPLANATION : MATCH_PENDING_EXPLANATION}
     >
       Skill match: {formatMatch(match)}
@@ -882,7 +932,7 @@ function JobRow({ job, match = null, skillMatch, skillState = "loading", status,
   onOpen: () => void; onSave: () => void;
 }) {
   return <article className={`min-w-0 rounded-xl border p-4 transition-colors ${
-    selected ? "border-blue-400 bg-blue-50/70 shadow-sm" : "bg-card hover:border-blue-200 hover:bg-blue-50/30"
+    selected ? "border-brand-400 bg-brand-50/70 shadow-sm" : "bg-card hover:border-brand-200 hover:bg-brand-50/30"
   }`}>
     <button className="block w-full min-w-0 rounded-md text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
       type="button" aria-pressed={compact ? selected : undefined} onClick={onOpen}>
@@ -1080,7 +1130,7 @@ function TrackerView({ rows, allRows, search, onSearch, workMode, onWorkMode, po
           <th className="px-4 py-3 font-medium">Last update</th><th className="px-4 py-3 font-medium">Location</th>
           <th className="px-4 py-3 font-medium">Actions</th>
         </tr></thead><tbody>
-          {rows.map((app) => <tr className="border-t hover:bg-blue-50/40" key={app.id}>
+          {rows.map((app) => <tr className="border-t hover:bg-brand-50/40" key={app.id}>
             <td className="px-4 py-3 font-semibold">{app.jobs?.companies?.name ?? "Unknown company"}</td>
             <td className="min-w-[180px] px-4 py-3"><button className="text-left font-medium text-primary hover:underline" onClick={() => onOpen(app.job_id)}>{app.jobs?.title ?? "Job no longer listed"}</button></td>
             <td className="px-4 py-3"><select aria-label={`Status for ${app.jobs?.title ?? "tracked job"}`} className="h-9 rounded-md border bg-card px-2" disabled={busyJobId === app.job_id} value={normalizeStatus(app.status)} onChange={(event) => onChange(app.job_id, event.target.value as ApplicationStatus)}>
@@ -1102,6 +1152,7 @@ function SetupMessage() {
     <main className="grid min-h-screen place-items-center px-4">
       <Card className="max-w-lg">
         <CardHeader>
+          <LandedWordmark className="mb-4 w-36" />
           <CardTitle>Connect the website to Supabase</CardTitle>
           <CardDescription>
             Create <code>frontend/.env.local</code> with your Project URL and anon key (see
@@ -1115,7 +1166,10 @@ function SetupMessage() {
 
 function CenteredText({ text }: { text: string }) {
   return (
-    <main className="grid min-h-screen place-items-center text-sm text-muted-foreground">{text}</main>
+    <main className="grid min-h-screen place-content-center justify-items-center gap-4 text-sm text-muted-foreground">
+      <LandedMark animated className="w-28" />
+      {text}
+    </main>
   );
 }
 

@@ -11,7 +11,7 @@ export function SkillMatchBadge({ match, state }: { match: JobSkillMatch; state:
     : state === "empty" ? "Add your skills to see a match"
     : `${match.percent}% skill match · ${match.matched.length}/${match.total}`;
   return <span className="inline-flex flex-col items-start gap-1">
-    <span className="inline-flex w-fit rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-800">{label}</span>
+    <span className="inline-flex w-fit rounded-full border border-brand-200 bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-800">{label}</span>
     {state === "ready" && match.total === 1 && <span className="text-xs font-normal text-muted-foreground">Based on 1 recorded skill</span>}
   </span>;
 }
@@ -19,7 +19,7 @@ export function SkillMatchBadge({ match, state }: { match: JobSkillMatch; state:
 export function JobSkillBreakdown({ match, state, onEditSkills, onRetry }: {
   match: JobSkillMatch; state: SkillMatchState; onEditSkills: () => void; onRetry: () => void;
 }) {
-  return <section aria-label="Your skill match" className="space-y-3 rounded-xl border border-blue-100 bg-blue-50/40 p-4">
+  return <section aria-label="Your skill match" className="space-y-3 rounded-xl border border-brand-100 bg-brand-50/40 p-4">
     <div className="flex flex-wrap items-center justify-between gap-2">
       <h2 className="text-sm font-semibold">Your skill match</h2>
       <Button size="sm" variant="outline" onClick={onEditSkills}>Manage my skills</Button>
@@ -32,11 +32,11 @@ export function JobSkillBreakdown({ match, state, onEditSkills, onRetry }: {
           : <div className="space-y-2">
             <p className="text-sm"><strong>{match.matched.length} of {match.total}</strong> recorded job skills match your saved skills ({match.percent}%).</p>
             <div role="progressbar" aria-label="Recorded skills matched" aria-valuemin={0} aria-valuemax={match.total} aria-valuenow={match.matched.length}
-              className="h-2 overflow-hidden rounded-full bg-blue-100">
-              <div className="h-full rounded-full bg-blue-600" style={{ width: `${match.percent}%` }} />
+              className="h-2 overflow-hidden rounded-full bg-brand-100">
+              <div className="h-full rounded-full bg-brand-600" style={{ width: `${match.percent}%` }} />
             </div>
           </div>}
-        <details className="group rounded-lg border border-blue-100 bg-card">
+        <details className="group rounded-lg border border-brand-100 bg-card">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-sm font-medium text-primary focus-visible:outline focus-visible:outline-2 [&::-webkit-details-marker]:hidden">
             <span>View skill breakdown</span><ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
           </summary>
