@@ -259,8 +259,12 @@ print a summary
 STARTER_COMPANIES = {"Stripe": "stripe", "Airbnb": "airbnb", ...}
 CLOSE_AFTER_DAYS = 2
 BATCH_SIZE = 200
-CS_WORDS = ["software", "engineer", "developer", "data", ..., "intern", "new grad"]
-EXCLUDE_WORDS = ["senior", "staff", "principal", "manager", ..., "sales", "recruiter"]
+CS_WORDS = ["software", "engineer", "developer", ..., "data scientist", "security analyst"]
+EXCLUDE_WORDS = ["lead", "manager", "director", ..., "sales", "recruiter"]
+SENIOR_WORDS = ["senior", "sr", "staff", "principal", ...]
+EARLY_CAREER_WORDS = ["early career", "new grad", "intern", "internship"]
+OTHER_ENGINEERING_WORDS = ["mechanical", "aerospace", "electrical", "civil engineer", ...]
+SOFTWARE_WORK_WORDS = ["software", "firmware", "embedded", "ml", ...]
 US_STATE_CODES, US_HINTS, NON_US_HINTS = ...
 ```
 
@@ -269,8 +273,10 @@ US_STATE_CODES, US_HINTS, NON_US_HINTS = ...
 | `STARTER_COMPANIES` | Display name → Greenhouse slug (from `job-boards.greenhouse.io/<slug>`). Added to `companies` on every run if missing |
 | `CLOSE_AFTER_DAYS` | Jobs not seen for this many days are marked closed |
 | `BATCH_SIZE` | How many rows are sent to Supabase per request |
-| `CS_WORDS` | A title must contain one of these to count as a CS job |
-| `EXCLUDE_WORDS` | A title containing any of these is dropped (too senior, or not a CS role) |
+| `CS_WORDS` | A title must contain one of these to count as a CS job. Broad words (data, security, AI, intern, new grad) only appear inside phrases such as "data scientist" |
+| `EXCLUDE_WORDS` | A title containing any of these is dropped (leadership, or not a CS role) |
+| `SENIOR_WORDS` | Too senior: dropped unless the title also has an `EARLY_CAREER_WORDS` entry |
+| `OTHER_ENGINEERING_WORDS` | Every non-software engineering discipline (because "engineer" alone counts as a CS word); a title with one is dropped unless it also has a `SOFTWARE_WORK_WORDS` entry. Ambiguous words are listed as phrases ("audio engineer") |
 | `US_STATE_CODES`, `US_HINTS`, `NON_US_HINTS` | Used to decide whether a location is in the U.S. |
 
 Names in ALL CAPS are settings you can change without touching the logic below them.
@@ -281,11 +287,9 @@ Names in ALL CAPS are settings you can change without touching the logic below t
 
 **`is_cs_role(title)`**
 
-```python
-return has_word(title, CS_WORDS) and not has_word(title, EXCLUDE_WORDS)
-```
+A title is kept when it contains a `CS_WORDS` entry, contains no `EXCLUDE_WORDS` entry, is not senior (or is senior but explicitly early-career), and either has no `OTHER_ENGINEERING_WORDS` entry or also names software work. The "staff" in "Member of Technical Staff" is ignored for the seniority check.
 
-"Software Engineer, Intern" → kept. "Senior Software Engineer" → dropped ("senior"). "Sales Engineer" → dropped ("sales").
+"Software Engineer, Intern" → kept. "Accounting Intern" → dropped (no CS phrase). "Senior Software Engineer" → dropped ("senior"). "Senior ML Engineer - PhD Early Career" → kept. "Sales Engineer" → dropped ("sales"). "Mechanical Engineering Intern" → dropped. "Software Engineer, Hardware Health" → kept.
 
 **`is_us_location(location)`** checks, in this order:
 

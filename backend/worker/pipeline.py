@@ -79,20 +79,63 @@ STARTER_COMPANIES = {
 CLOSE_AFTER_DAYS = 2  # jobs not seen for this long get marked closed
 BATCH_SIZE = 200      # how many rows to send to Supabase at once
 
-# A title must contain one of these (whole words) to count as a CS job
+# A title must contain one of these (whole words) to count as a CS job.
+# Broad words like "data", "security" or "intern" only count inside a phrase:
+# alone they also match "Data Migration Consultant", "Physical Security
+# Associate" or "Accounting Intern". Interns and new grads still qualify
+# through their role, e.g. "Software Engineer Intern".
 CS_WORDS = [
-    "software", "engineer", "engineering", "developer", "data", "machine learning",
-    "ml", "ai", "security", "infrastructure", "backend", "back end", "frontend",
-    "front end", "full stack", "fullstack", "platform", "mobile", "ios", "android",
-    "devops", "sre", "site reliability", "intern", "internship", "new grad",
+    # Software roles
+    "software", "engineer", "developer", "programmer", "swe", "member of technical staff",
+    "backend", "back end", "frontend", "front end", "full stack", "fullstack",
+    "mobile", "ios", "android", "firmware", "embedded",
+    "devops", "sre", "site reliability",
+    # Data, ML and research
+    "machine learning", "ml", "deep learning", "computer vision", "nlp",
+    "data science", "data scientist", "data analyst", "data engineering",
+    "research scientist", "research science", "applied scientist", "ai research", "ai researcher",
+    "analytics intern", "information technology",
+    # Security and infrastructure
+    "security analyst", "security researcher", "security engineering", "security operations",
+    "cybersecurity", "cyber security", "application security",
+    "infrastructure engineering", "platform engineering",
 ]
 
-# ...and must NOT contain any of these (too senior, or not really a CS role)
+# ...and must NOT contain any of these (leadership, or not really a CS role)
 EXCLUDE_WORDS = [
-    "senior", "sr", "staff", "principal", "lead", "manager", "director", "head",
-    "vp", "vice president", "architect", "distinguished", "iii", "iv",
+    "lead", "manager", "director", "head", "vp", "vice president", "architect",
     "sales", "solutions", "account", "recruiter", "recruiting", "counsel",
     "marketing", "designer", "technician",
+]
+
+# Too senior, unless the title says it is an early-career role
+# ("Senior Machine Learning Engineer - PhD Early Career").
+SENIOR_WORDS = ["senior", "sr", "staff", "principal", "distinguished", "iii", "iv"]
+EARLY_CAREER_WORDS = ["early career", "new grad", "intern", "internship"]
+
+# Engineering fields outside software. "engineer" alone is a CS word, so every
+# other discipline must be listed here to keep e.g. "Aerospace Engineer Intern"
+# out. Words that also appear in software titles are written as phrases
+# ("audio engineer", not "audio"). A title that also names software work
+# ("Software Engineer, Hardware Health") is kept.
+OTHER_ENGINEERING_WORDS = [
+    # Mechanical, vehicles and aerospace
+    "mechanical", "mechatronics", "aerospace", "aeronautical", "astronautical", "avionics",
+    "propulsion", "automotive", "chassis", "powertrain", "body structures", "vehicle safety",
+    "cae", "cad", "thermal", "hvac", "fire protection", "controls engineer",
+    # Electrical and chip design
+    "electrical", "hardware", "hw", "analog", "rf", "pcb", "pcba", "asic", "fpga", "rtl",
+    "physical design", "design verification", "signal integrity", "power electronics",
+    "optical", "photonics", "battery",
+    # Civil, chemical, materials and other physical fields
+    "civil engineer", "structural", "geotechnical", "environmental engineer", "site engineer",
+    "chemical", "process engineer", "materials", "metallurgical", "biomedical", "bioengineer",
+    "nuclear", "petroleum", "mining engineer", "agricultural", "marine", "naval", "packaging",
+    "manufacturing", "industrial", "audio engineer",
+]
+SOFTWARE_WORK_WORDS = [
+    "software", "firmware", "embedded", "ml", "machine learning",
+    "data engineer", "data engineering", "data scientist", "data science", "data mining",
 ]
 
 US_STATE_CODES = {
@@ -135,7 +178,14 @@ def has_word(text: str, words: list[str]) -> bool:
 
 
 def is_cs_role(title: str) -> bool:
-    return has_word(title, CS_WORDS) and not has_word(title, EXCLUDE_WORDS)
+    if not has_word(title, CS_WORDS) or has_word(title, EXCLUDE_WORDS):
+        return False
+    # "Member of Technical Staff" is a standard software title at several AI
+    # companies; its "staff" is not the seniority level that SENIOR_WORDS means.
+    without_mts = re.sub(r"\bmember of technical staff\b", "", title, flags=re.IGNORECASE)
+    if has_word(without_mts, SENIOR_WORDS) and not has_word(title, EARLY_CAREER_WORDS):
+        return False
+    return not has_word(title, OTHER_ENGINEERING_WORDS) or has_word(title, SOFTWARE_WORK_WORDS)
 
 
 def is_us_location(location: str) -> bool:
