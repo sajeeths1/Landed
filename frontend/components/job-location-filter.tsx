@@ -31,9 +31,9 @@ export function JobLocationFilter({ locations, onChange, showChips = true }: {
       {locations.length ? "Matches any added location by name." : "Anywhere. Add one or more cities, states, or countries."}
     </p>
     {showChips && locations.length > 0 && <ul aria-label="Selected locations" className="flex flex-wrap gap-2">
-      {locations.map((location) => <li key={location} className="flex max-w-full items-center gap-1 rounded-full border border-blue-200 bg-blue-50 py-1 pl-3 pr-1 text-xs text-blue-800">
+      {locations.map((location) => <li key={location} className="flex max-w-full items-center gap-1 rounded-full border border-brand-200 bg-brand-50 py-1 pl-3 pr-1 text-xs text-brand-800">
         <span className="break-words">{location}</span>
-        <button type="button" className="shrink-0 rounded-full p-1.5 hover:bg-blue-100 focus-visible:outline focus-visible:outline-2"
+        <button type="button" className="shrink-0 rounded-full p-1.5 hover:bg-brand-100 focus-visible:outline focus-visible:outline-2"
           aria-label={`Remove location ${location}`} onClick={() => onChange(locations.filter((value) => value !== location))}>
           <X className="h-3.5 w-3.5" aria-hidden="true" />
         </button>

@@ -52,7 +52,7 @@ export function JobsFilters({ search, onClearSearch, workMode, onClearWorkMode, 
     {chips.length > 0 && <ul aria-label="Active job filters" className="flex flex-wrap gap-1.5">
       {chips.map((chip) => <li key={chip.key}>
         <button type="button" aria-label={`Remove filter ${chip.label}`} title={`Remove ${chip.label}`} onClick={chip.remove}
-          className="flex max-w-full items-center gap-1 rounded-full border border-blue-200 bg-blue-50 py-1 pl-2.5 pr-1.5 text-xs text-blue-800 hover:bg-blue-100 focus-visible:outline focus-visible:outline-2">
+          className="flex max-w-full items-center gap-1 rounded-full border border-brand-200 bg-brand-50 py-1 pl-2.5 pr-1.5 text-xs text-brand-800 hover:bg-brand-100 focus-visible:outline focus-visible:outline-2">
           <span className="max-w-52 truncate">{chip.label}</span><X className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
         </button>
       </li>)}
