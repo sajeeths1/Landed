@@ -2,7 +2,15 @@ name: Job pipeline
 
 on:
   schedule:
-    - cron: "0 */6 * * *"   # every 6 hours
+    # GitHub uses UTC time. Times below are Eastern (winter); in summer each runs 1 hour later.
+    # Mon-Fri every 2 hours: 7am, 9am, 11am, 1pm, 3pm, 5pm
+    - cron: "0 12,14,16,18,20,22 * * 1-5"
+    # Mon-Fri evening and night: 7pm, then every 4 hours at 11pm and 3am
+    - cron: "0 0,4,8 * * 2-6"
+    # Sat-Sun every 4 hours: 8am, 12pm, 4pm
+    - cron: "0 13,17,21 * * 0,6"
+    # Sat-Sun 8pm, then 2am overnight (every 6 hours)
+    - cron: "0 1,7 * * 0,1"
   workflow_dispatch:         # adds a "Run workflow" button
 
 permissions:
@@ -11,7 +19,7 @@ permissions:
 jobs:
   run-pipeline:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30   # ~800 company boards per run after discovery
     defaults:
       run:
         working-directory: backend/worker

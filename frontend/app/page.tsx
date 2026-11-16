@@ -46,6 +46,7 @@ import {
   fetchJobsForYou,
   fetchJobsPage,
   fetchKnownSkillIds,
+  fetchNewRoleCounts,
   fetchOpenJobs,
   fetchProfile,
   fetchUserSkillIds,
@@ -218,6 +219,16 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
     void loadPriorityCompanies();
   }, [loadPriorityCompanies]);
 
+  // Count each priority company's new roles in the database, not just among the loaded jobs.
+  const [newRoleCounts, setNewRoleCounts] = useState<Map<number, number>>(() => new Map());
+  useEffect(() => {
+    let current = true;
+    fetchNewRoleCounts(priorityCompanyIds)
+      .then((counts) => { if (current) setNewRoleCounts(counts); })
+      .catch(() => { /* Non-critical: tiles keep their last counts. */ });
+    return () => { current = false; };
+  }, [priorityCompanyIds, recommendationRefresh]);
+
   useEffect(() => {
     fetchCompanies().then(setCompanies).catch(() => undefined);
     fetchNotifications(30)
@@ -366,12 +377,16 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
     filteredJobs.find((job) => job.id === selectedJobId) ?? filteredJobs[0] ?? null;
 
   const unseenDashboardJobs = dashboardJobs.filter((job) => !statusByJob.has(job.id));
+  const followedCompanyCount = companies.filter((company) => priorityCompanyIds.includes(company.id)).length;
+  // Only companies with roles posted this week, most new roles first.
   const priorityCompanies = companies
     .filter((company) => priorityCompanyIds.includes(company.id))
     .map((company) => ({
       ...company,
-      newRoles: jobs.filter((job) => job.company_id === company.id && matchesPostedDate(job.posted_at, "week")).length,
+      newRoles: newRoleCounts.get(company.id) ?? 0,
     }))
+    .filter((company) => company.newRoles > 0)
+    .sort((a, b) => b.newRoles - a.newRoles || a.name.localeCompare(b.name))
     .slice(0, 5);
 
   function visibleTrackerRows() {
@@ -586,12 +601,16 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
                           <span className="min-w-0">
                             <span className="block truncate text-sm font-semibold">{company.name}</span>
                             <span className="block text-xs text-muted-foreground">
-                              {company.newRoles ? `${company.newRoles} new ${company.newRoles === 1 ? "role" : "roles"}` : "No new roles"}
+                              {company.newRoles} new {company.newRoles === 1 ? "role" : "roles"}
                             </span>
                           </span>
                         </button>
                       ))}
                     </div>
+                  ) : followedCompanyCount ? (
+                    <p className="text-sm text-muted-foreground">
+                      No new roles this week from your {followedCompanyCount} priority {followedCompanyCount === 1 ? "company" : "companies"}.
+                    </p>
                   ) : (
                     <p className="text-sm text-muted-foreground">No priority companies yet. <button className="text-primary underline" onClick={() => setTab("profile")}>Choose companies</button>.</p>
                   )}

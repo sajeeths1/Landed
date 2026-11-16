@@ -6,6 +6,7 @@ import type { LearningGoal, LearningResource, Skill, SkillOverview } from "@/lib
 import type { Company, NotificationRow, NotificationSettings } from "@/lib/notifications";
 import { DEFAULT_NOTIFICATION_SETTINGS } from "@/lib/notifications";
 import { jobFeedParameters, type JobFeedFilters, type JobPage } from "@/lib/job-feed";
+import { postedDateRange } from "@/lib/job-filters";
 import { RESUME_FILENAME_HEADER } from "@/lib/resume";
 import { RESUME_LIBRARY_BUCKET, RESUME_LIBRARY_COLUMNS, uploadResumeVersion, type StoredResume, type JobResumeChoice } from "@/lib/resume-library";
 
@@ -262,6 +263,23 @@ export async function fetchPriorityCompanyIds(userId: string): Promise<number[]>
   const { data, error } = await db().from("priority_companies").select("company_id").eq("user_id", userId);
   if (error) throw error;
   return ((data ?? []) as { company_id: number }[]).map((row) => row.company_id);
+}
+
+/** Open jobs posted in the past 7 days for each company, counted in the database
+ * so the dashboard is not limited to the jobs it has loaded. Uses the same date
+ * window as the "Past 7 days" job filter. */
+export async function fetchNewRoleCounts(companyIds: readonly number[]): Promise<Map<number, number>> {
+  const range = postedDateRange("week");
+  if (!range || !companyIds.length) return new Map();
+  const counts = await Promise.all([...new Set(companyIds)].map(async (companyId) => {
+    const { count, error } = await db().from("jobs")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", companyId).eq("is_open", true)
+      .gte("posted_at", range.from).lte("posted_at", range.to);
+    if (error) throw error;
+    return [companyId, count ?? 0] as const;
+  }));
+  return new Map(counts);
 }
 
 /** The database rejects a priority selection past the 10-company limit. */
